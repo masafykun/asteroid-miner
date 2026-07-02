@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>小惑星マイナー | 3D採掘シューティング</title>
+<meta name="description" content="小惑星を撃ち砕いて鉱石を集め、船をアップグレードしていくWebGL製3D採掘ゲーム。全5ウェーブの先に待つ母岩を粉砕せよ。スマホ・PC両対応。">
+<meta name="theme-color" content="#05060f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#05060f;
+  --ink:#e8ecff;
+  --dim:#8a93b8;
+  --gold:#ffb84d;
+  --cyan:#59f2ff;
+  --ice:#9fd8ff;
+  --danger:#ff5470;
+  --panel:rgba(10,13,28,.88);
+  --line:rgba(137,160,255,.22);
+  --font-head:'DotGothic16',monospace;
+  --font-body:'Zen Kaku Gothic New',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{
+  background:
+    radial-gradient(120% 90% at 82% 12%, rgba(94,52,150,.38) 0%, transparent 55%),
+    radial-gradient(90% 80% at 12% 85%, rgba(20,90,120,.35) 0%, transparent 55%),
+    radial-gradient(60% 50% at 50% 45%, rgba(40,48,110,.25) 0%, transparent 60%),
+    var(--bg);
+  color:var(--ink);
+  font-family:var(--font-body);
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+}
+#gl{position:fixed;inset:0;display:block}
+/* ---- vignette & scanline ---- */
+#fx{position:fixed;inset:0;pointer-events:none;z-index:5;
+  background:radial-gradient(120% 120% at 50% 50%, transparent 55%, rgba(2,3,10,.55) 100%);}
+#fx::after{content:"";position:absolute;inset:0;opacity:.05;
+  background:repeating-linear-gradient(0deg, #fff 0 1px, transparent 1px 3px);}
+#hitflash{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
+  background:radial-gradient(100% 100% at 50% 50%, transparent 40%, rgba(255,60,90,.5) 100%);
+  transition:opacity .35s ease-out;}
+#hitflash.on{opacity:1;transition:opacity .04s}
+/* ---- HUD ---- */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10;display:none;
+  padding:calc(env(safe-area-inset-top,0px) + 12px) calc(env(safe-area-inset-right,0px) + 16px) 12px calc(env(safe-area-inset-left,0px) + 16px);}
+#hud.on{display:block}
+.hud-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.hud-block{background:var(--panel);border:1px solid var(--line);padding:8px 14px;
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);}
+.hud-label{font-family:var(--font-head);font-size:10px;letter-spacing:.18em;color:var(--dim)}
+.hud-value{font-family:var(--font-head);font-size:clamp(16px,4.4vw,24px);line-height:1.15}
+#hudOre .hud-value{color:var(--gold)}
+#hudWave .hud-value{color:var(--cyan)}
+.hull-wrap{margin-top:10px;max-width:340px}
+.hull-bar{height:8px;background:rgba(255,255,255,.08);border:1px solid var(--line);
+  clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%);}
+#hullFill{height:100%;width:100%;background:linear-gradient(90deg,#42e8b0,#59f2ff);transition:width .15s ease-out}
+#hullFill.warn{background:linear-gradient(90deg,#ffb84d,#ff8a3d)}
+#hullFill.crit{background:linear-gradient(90deg,#ff5470,#ff2d55)}
+.hull-label{display:flex;justify-content:space-between;font-family:var(--font-head);font-size:10px;letter-spacing:.15em;color:var(--dim);margin-bottom:4px}
+/* boss bar */
+#bossBar{margin:14px auto 0;max-width:520px;display:none}
+#bossBar.on{display:block}
+#bossBar .hull-label{color:var(--gold);justify-content:center;gap:1em}
+#bossFill{height:100%;width:100%;background:linear-gradient(90deg,#ffb84d,#ff5e3d)}
+#waveToast{position:fixed;left:0;right:0;top:34%;text-align:center;pointer-events:none;z-index:11;
+  font-family:var(--font-head);font-size:clamp(26px,7vw,52px);color:var(--cyan);
+  text-shadow:0 0 24px rgba(89,242,255,.7);opacity:0;transform:scale(1.15);letter-spacing:.12em}
+#waveToast.pop{animation:toast 1.6s ease-out forwards}
+@keyframes toast{0%{opacity:0;transform:scale(1.25)}12%{opacity:1;transform:scale(1)}75%{opacity:1}100%{opacity:0;transform:scale(.95)}}
+/* ---- screens ---- */
+.screen{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:24px;opacity:0;pointer-events:none;transition:opacity .45s ease;
+  background:rgba(4,5,14,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);}
+.screen.on{opacity:1;pointer-events:auto}
+.t-badge{font-family:var(--font-head);font-size:clamp(10px,2.6vw,13px);letter-spacing:.42em;color:var(--dim);
+  border:1px solid var(--line);padding:6px 16px 6px 20px;margin-bottom:22px;
+  clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
+h1{font-family:var(--font-head);font-weight:400;font-size:clamp(44px,13vw,96px);line-height:1.04;letter-spacing:.05em;
+  background:linear-gradient(180deg,#fff 20%,var(--gold) 62%,#c96f1e 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 4px 26px rgba(255,184,77,.35));}
+h1 .h-sub{display:block;font-size:clamp(15px,4vw,24px);letter-spacing:.62em;margin-bottom:6px;
+  background:linear-gradient(180deg,var(--cyan),#3a9fc0);-webkit-background-clip:text;background-clip:text;}
+.t-sub{color:var(--dim);font-size:clamp(12px,3.4vw,15px);line-height:2;margin:20px 0 26px;font-weight:500}
+.t-sub b{color:var(--ink);font-weight:700}
+.ore-legend{display:flex;gap:14px;justify-content:center;margin-bottom:28px;flex-wrap:wrap}
+.ore-tag{font-family:var(--font-head);font-size:11px;letter-spacing:.1em;color:var(--dim);
+  border:1px solid var(--line);padding:5px 12px;background:rgba(10,13,28,.6)}
+.ore-tag i{display:inline-block;width:9px;height:9px;margin-right:7px;transform:rotate(45deg)}
+.big-btn{font-family:var(--font-head);font-size:clamp(17px,4.6vw,22px);letter-spacing:.28em;color:#0a0c18;
+  background:linear-gradient(180deg,var(--gold),#e08f22);border:none;cursor:pointer;
+  padding:16px 46px 16px 52px;position:relative;
+  clip-path:polygon(16px 0,100% 0,calc(100% - 16px) 100%,0 100%);
+  box-shadow:0 6px 34px rgba(255,184,77,.4);transition:transform .12s,box-shadow .12s;}
+.big-btn:hover{transform:translateY(-2px);box-shadow:0 10px 44px rgba(255,184,77,.55)}
+.big-btn:active{transform:translateY(1px)}
+.big-btn.cyan{background:linear-gradient(180deg,var(--cyan),#2bb3cf);box-shadow:0 6px 34px rgba(89,242,255,.35)}
+.t-best{margin-top:26px;font-family:var(--font-head);font-size:13px;letter-spacing:.2em;color:var(--dim)}
+.t-best span{color:var(--gold);font-size:18px}
+.t-controls{margin-top:14px;font-size:11px;color:var(--dim);letter-spacing:.08em;line-height:1.9}
+.t-controls kbd{font-family:var(--font-head);border:1px solid var(--line);padding:1px 6px;margin:0 2px;background:rgba(255,255,255,.05);border-radius:3px}
+/* result */
+.r-title{font-family:var(--font-head);font-weight:400;font-size:clamp(34px,10vw,72px);letter-spacing:.1em;line-height:1.1}
+#overScreen .r-title{color:var(--danger);text-shadow:0 0 34px rgba(255,84,112,.5)}
+#clearScreen .r-title{background:linear-gradient(180deg,#fff,var(--gold));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 30px rgba(255,184,77,.45))}
+.r-sub{color:var(--dim);margin:10px 0 24px;font-size:clamp(12px,3.2vw,14px);letter-spacing:.1em}
+.r-stats{display:flex;gap:14px;margin-bottom:30px;flex-wrap:wrap;justify-content:center}
+.r-stat{background:var(--panel);border:1px solid var(--line);padding:12px 26px;min-width:130px;
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);}
+.r-stat .hud-label{margin-bottom:4px}
+.r-stat .hud-value{font-size:clamp(20px,5.6vw,30px)}
+.r-stat.gold .hud-value{color:var(--gold)}
+.new-best{font-family:var(--font-head);color:var(--gold);letter-spacing:.3em;font-size:13px;margin-bottom:14px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.25}}
+/* ---- upgrade dock ---- */
+#upgScreen{justify-content:flex-start;padding-top:max(4vh,20px);overflow-y:auto;background:rgba(4,5,14,.72)}
+.u-head{font-family:var(--font-head);font-size:clamp(20px,6vw,32px);letter-spacing:.28em;color:var(--cyan);margin-bottom:4px;
+  text-shadow:0 0 20px rgba(89,242,255,.5)}
+.u-sub{color:var(--dim);font-size:12px;letter-spacing:.14em;margin-bottom:6px}
+.u-ore{font-family:var(--font-head);font-size:clamp(18px,5vw,26px);color:var(--gold);margin-bottom:18px;letter-spacing:.08em}
+.u-list{display:flex;flex-direction:column;gap:10px;width:min(560px,100%)}
+.u-card{display:flex;align-items:center;gap:14px;text-align:left;background:var(--panel);
+  border:1px solid var(--line);padding:12px 14px;
+  clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px);}
+.u-icon{font-family:var(--font-head);font-size:20px;color:var(--cyan);width:34px;height:34px;flex:none;
+  display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:rgba(89,242,255,.06)}
+.u-info{flex:1;min-width:0}
+.u-name{font-family:var(--font-head);font-size:14px;letter-spacing:.14em}
+.u-name .u-key{color:var(--dim);font-size:10px;margin-left:8px}
+.u-desc{font-size:11px;color:var(--dim);margin-top:2px}
+.u-pips{display:flex;gap:4px;margin-top:6px}
+.u-pip{width:20px;height:5px;background:rgba(255,255,255,.1);transform:skewX(-22deg)}
+.u-pip.lit{background:var(--gold);box-shadow:0 0 8px rgba(255,184,77,.7)}
+.u-buy{font-family:var(--font-head);flex:none;border:1px solid var(--gold);background:rgba(255,184,77,.12);color:var(--gold);
+  font-size:13px;letter-spacing:.06em;padding:10px 14px;cursor:pointer;min-width:86px;transition:background .12s,transform .12s;
+  clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
+.u-buy:hover:not(:disabled){background:rgba(255,184,77,.3);transform:translateY(-1px)}
+.u-buy:disabled{border-color:rgba(255,255,255,.14);color:rgba(255,255,255,.28);background:transparent;cursor:default}
+.u-buy.maxed{border-color:var(--cyan);color:var(--cyan);background:rgba(89,242,255,.08)}
+#nextWaveBtn{margin:24px 0 12px}
+/* footer */
+#copyright{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 6px);z-index:30;
+  text-align:center;font-size:10px;letter-spacing:.14em;color:rgba(138,147,184,.55);pointer-events:none;font-family:var(--font-head)}
+@media (max-height:600px){
+  .t-sub{margin:10px 0 14px;line-height:1.7}
+  .ore-legend{margin-bottom:14px}
+  .t-best{margin-top:14px}
+  .u-desc{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="fx"></div>
+<div id="hitflash"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="hud-top">
+    <div>
+      <div style="display:flex;gap:10px">
+        <div class="hud-block" id="hudWave"><div class="hud-label">WAVE</div><div class="hud-value" id="waveText">1/5</div></div>
+        <div class="hud-block"><div class="hud-label">SCORE</div><div class="hud-value" id="scoreText">0</div></div>
+      </div>
+      <div class="hull-wrap">
+        <div class="hull-label"><span>装甲 HULL</span><span id="hullText">100</span></div>
+        <div class="hull-bar"><div id="hullFill"></div></div>
+      </div>
+    </div>
+    <div class="hud-block" id="hudOre"><div class="hud-label">鉱石 ORE</div><div class="hud-value" id="oreText">0</div></div>
+  </div>
+  <div id="bossBar">
+    <div class="hull-label"><span>◆ 母岩 コアヘビー ◆</span></div>
+    <div class="hull-bar"><div id="bossFill"></div></div>
+  </div>
+</div>
+<div id="waveToast"></div>
+
+<!-- TITLE -->
+<div id="titleScreen" class="screen on">
+  <div class="t-badge">DEEP SPACE MINING OPERATION</div>
+  <h1><span class="h-sub">ASTEROID MINER</span>小惑星マイナー</h1>
+  <p class="t-sub">小惑星を砕き、鉱石を集め、船を強化せよ。<br>全<b>5ウェーブ</b>の先に待つ<b>母岩</b>を粉砕すれば任務完了。</p>
+  <div class="ore-legend">
+    <span class="ore-tag"><i style="background:#b9c2d8"></i>岩石 +1</span>
+    <span class="ore-tag"><i style="background:#9fd8ff"></i>氷晶 +2</span>
+    <span class="ore-tag"><i style="background:#ffb84d"></i>金鉱 +4</span>
+  </div>
+  <button class="big-btn" id="startBtn">出撃する</button>
+  <div class="t-best">BEST SCORE <span id="titleBest">0</span></div>
+  <p class="t-controls">
+    PC <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / 矢印キーで移動 ・ 射撃は自動<br>
+    スマホ 画面をドラッグして移動
+  </p>
+</div>
+
+<!-- UPGRADE -->
+<div id="upgScreen" class="screen">
+  <div class="u-head">補給ドック</div>
+  <div class="u-sub" id="upgWaveInfo">WAVE 1 完了 — 船体を強化せよ</div>
+  <div class="u-ore">◈ 鉱石 <span id="upgOre">0</span></div>
+  <div class="u-list" id="upgList"></div>
+  <button class="big-btn cyan" id="nextWaveBtn">次のウェーブへ</button>
+</div>
+
+<!-- GAME OVER -->
+<div id="overScreen" class="screen">
+  <div class="r-title">船体大破</div>
+  <p class="r-sub" id="overSub">採掘船は宇宙の塵となった……</p>
+  <div class="new-best" id="overNewBest" style="display:none">★ NEW BEST RECORD ★</div>
+  <div class="r-stats">
+    <div class="r-stat"><div class="hud-label">SCORE</div><div class="hud-value" id="overScore">0</div></div>
+    <div class="r-stat gold"><div class="hud-label">BEST</div><div class="hud-value" id="overBest">0</div></div>
+  </div>
+  <button class="big-btn" id="overRetryBtn">リトライ</button>
+  <p class="t-controls"><kbd>R</kbd> でもリスタート</p>
+</div>
+
+<!-- CLEAR -->
+<div id="clearScreen" class="screen">
+  <div class="t-badge">MISSION COMPLETE</div>
+  <div class="r-title">採掘完了</div>
+  <p class="r-sub">母岩は砕け散った。星海に黄金の雨が降る。</p>
+  <div class="new-best" id="clearNewBest" style="display:none">★ NEW BEST RECORD ★</div>
+  <div class="r-stats">
+    <div class="r-stat"><div class="hud-label">SCORE</div><div class="hud-value" id="clearScore">0</div></div>
+    <div class="r-stat gold"><div class="hud-label">BEST</div><div class="hud-value" id="clearBest">0</div></div>
+  </div>
+  <button class="big-btn" id="clearRetryBtn">もう一度出撃</button>
+  <p class="t-controls"><kbd>R</kbd> でもリスタート</p>
+</div>
+
+<div id="copyright">© 2026 masafykun</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+
+/* ================= renderer / scene ================= */
+var canvas = $('gl');
+var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+var scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x05060f, 90, 230);
+
+var camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 400);
+var CAM_BASE = new THREE.Vector3(0, 2.6, 17);
+camera.position.copy(CAM_BASE);
+camera.lookAt(0, 0, -40);
+
+scene.add(new THREE.HemisphereLight(0x8fa8ff, 0x140a20, 0.9));
+var sun = new THREE.DirectionalLight(0xffe2b0, 1.4);
+sun.position.set(8, 12, 6);
+scene.add(sun);
+var rim = new THREE.DirectionalLight(0x59f2ff, 0.5);
+rim.position.set(-10, -4, -8);
+scene.add(rim);
+
+window.addEventListener('resize', function(){
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ================= starfield ================= */
+var STAR_N = 700;
+var starGeo = new THREE.BufferGeometry();
+var starPos = new Float32Array(STAR_N * 3);
+var starSpd = new Float32Array(STAR_N);
+for (var i = 0; i < STAR_N; i++) {
+  starPos[i*3]   = (Math.random() - 0.5) * 160;
+  starPos[i*3+1] = (Math.random() - 0.5) * 90;
+  starPos[i*3+2] = -220 + Math.random() * 240;
+  starSpd[i] = 14 + Math.random() * 30;
+}
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+var stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
+  color: 0xbfd0ff, size: 0.55, sizeAttenuation: true, transparent: true, opacity: 0.85
+}));
+scene.add(stars);
+
+function updateStars(dt, mul){
+  var p = starGeo.attributes.position.array;
+  for (var i = 0; i < STAR_N; i++) {
+    p[i*3+2] += starSpd[i] * mul * dt;
+    if (p[i*3+2] > 20) {
+      p[i*3+2] = -220;
+      p[i*3]   = (Math.random() - 0.5) * 160;
+      p[i*3+1] = (Math.random() - 0.5) * 90;
+    }
+  }
+  starGeo.attributes.position.needsUpdate = true;
+}
+
+/* ================= particles (single Points pool) ================= */
+var PART_N = 320;
+var partGeo = new THREE.BufferGeometry();
+var partPos = new Float32Array(PART_N * 3);
+var partCol = new Float32Array(PART_N * 3);
+var partVel = new Float32Array(PART_N * 3);
+var partLife = new Float32Array(PART_N);
+var partMax = new Float32Array(PART_N);
+for (i = 0; i < PART_N; i++) partPos[i*3+1] = -9999;
+partGeo.setAttribute('position', new THREE.BufferAttribute(partPos, 3));
+partGeo.setAttribute('color', new THREE.BufferAttribute(partCol, 3));
+var particles = new THREE.Points(partGeo, new THREE.PointsMaterial({
+  size: 0.5, vertexColors: true, transparent: true, opacity: 0.95,
+  blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+}));
+particles.frustumCulled = false;
+scene.add(particles);
+var partCursor = 0;
+
+function burst(x, y, z, color, count, speed){
+  var c = new THREE.Color(color);
+  for (var k = 0; k < count; k++) {
+    var idx = partCursor;
+    partCursor = (partCursor + 1) % PART_N;
+    partPos[idx*3] = x; partPos[idx*3+1] = y; partPos[idx*3+2] = z;
+    var th = Math.random() * Math.PI * 2;
+    var ph = Math.acos(2 * Math.random() - 1);
+    var sp = speed * (0.35 + Math.random() * 0.85);
+    partVel[idx*3]   = Math.sin(ph) * Math.cos(th) * sp;
+    partVel[idx*3+1] = Math.sin(ph) * Math.sin(th) * sp;
+    partVel[idx*3+2] = Math.cos(ph) * sp;
+    partLife[idx] = partMax[idx] = 0.5 + Math.random() * 0.6;
+    partCol[idx*3] = c.r; partCol[idx*3+1] = c.g; partCol[idx*3+2] = c.b;
+  }
+}
+function updateParticles(dt){
+  for (var i = 0; i < PART_N; i++) {
+    if (partLife[i] <= 0) continue;
+    partLife[i] -= dt;
+    if (partLife[i] <= 0) { partPos[i*3+1] = -9999; continue; }
+    partPos[i*3]   += partVel[i*3] * dt;
+    partPos[i*3+1] += partVel[i*3+1] * dt;
+    partPos[i*3+2] += partVel[i*3+2] * dt;
+    var fade = 1 - dt * 1.8;
+    partCol[i*3] *= fade; partCol[i*3+1] *= fade; partCol[i*3+2] *= fade;
+  }
+  partGeo.attributes.position.needsUpdate = true;
+  partGeo.attributes.color.needsUpdate = true;
+}
+
+/* ================= ship ================= */
+var ship = new THREE.Group();
+var shipBodyMat = new THREE.MeshStandardMaterial({ color: 0xd8dff2, metalness: 0.6, roughness: 0.35 });
+var shipAccMat  = new THREE.MeshStandardMaterial({ color: 0xffb84d, metalness: 0.5, roughness: 0.4, emissive: 0x572e00, emissiveIntensity: 0.6 });
+var body = new THREE.Mesh(new THREE.ConeGeometry(0.55, 2.4, 4), shipBodyMat);
+body.rotation.x = -Math.PI / 2;
+body.rotation.z = Math.PI / 4;
+ship.add(body);
+var wingGeo = new THREE.BoxGeometry(1.6, 0.08, 0.8);
+var wingL = new THREE.Mesh(wingGeo, shipAccMat);
+wingL.position.set(-0.85, -0.08, 0.5); wingL.rotation.z = 0.22;
+ship.add(wingL);
+var wingR = new THREE.Mesh(wingGeo, shipAccMat);
+wingR.position.set(0.85, -0.08, 0.5); wingR.rotation.z = -0.22;
+ship.add(wingR);
+var cockpit = new THREE.Mesh(
+  new THREE.SphereGeometry(0.26, 10, 8),
+  new THREE.MeshStandardMaterial({ color: 0x59f2ff, emissive: 0x1a7c8f, emissiveIntensity: 1.4, roughness: 0.2 })
+);
+cockpit.position.set(0, 0.22, -0.1);
+ship.add(cockpit);
+var engineGlow = new THREE.Mesh(
+  new THREE.SphereGeometry(0.3, 8, 6),
+  new THREE.MeshBasicMaterial({ color: 0x59f2ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false })
+);
+engineGlow.position.set(0, 0, 1.35);
+ship.add(engineGlow);
+var engineLight = new THREE.PointLight(0x59f2ff, 1.6, 14);
+engineLight.position.set(0, 0, 1.4);
+ship.add(engineLight);
+scene.add(ship);
+
+var BOUND_X = 13, BOUND_Y_MIN = -6, BOUND_Y_MAX = 7;
+
+/* ================= asteroid pools ================= */
+function roughGeo(radius, detail){
+  var g = new THREE.IcosahedronGeometry(radius, detail);
+  var pos = g.attributes.position;
+  var v = new THREE.Vector3();
+  var seen = {};
+  for (var i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    var key = v.x.toFixed(3) + ',' + v.y.toFixed(3) + ',' + v.z.toFixed(3);
+    if (!(key in seen)) seen[key] = 0.75 + Math.random() * 0.5;
+    v.multiplyScalar(seen[key]);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+var rockGeos = [roughGeo(1, 1), roughGeo(1, 1), roughGeo(1, 1)];
+var matRock = new THREE.MeshStandardMaterial({ color: 0x8f97ab, roughness: 0.95, metalness: 0.1, flatShading: true });
+var matIce  = new THREE.MeshStandardMaterial({ color: 0x9fd8ff, roughness: 0.35, metalness: 0.2, flatShading: true, emissive: 0x123a55, emissiveIntensity: 0.5 });
+var matGold = new THREE.MeshStandardMaterial({ color: 0xffb84d, roughness: 0.4, metalness: 0.8, flatShading: true, emissive: 0x4a2a00, emissiveIntensity: 0.7 });
+
+var TYPE = {
+  rock: { mat: matRock, value: 1, color: 0xb9c2d8, pts: 50 },
+  ice:  { mat: matIce,  value: 2, color: 0x9fd8ff, pts: 90 },
+  gold: { mat: matGold, value: 4, color: 0xffb84d, pts: 160 }
+};
+
+var ASTEROID_N = 36;
+var asteroids = [];
+for (i = 0; i < ASTEROID_N; i++) {
+  var m = new THREE.Mesh(rockGeos[i % 3], matRock);
+  m.visible = false;
+  scene.add(m);
+  asteroids.push({ mesh: m, active: false, hp: 0, radius: 1, type: 'rock',
+    vx: 0, vy: 0, vz: 0, rx: 0, ry: 0, size: 1, chunks: 2 });
+}
+function spawnAsteroid(opts){
+  opts = opts || {};
+  for (var i = 0; i < ASTEROID_N; i++) {
+    var a = asteroids[i];
+    if (a.active) continue;
+    var r = Math.random();
+    var type = opts.type || (r < 0.62 ? 'rock' : (r < 0.9 ? 'ice' : 'gold'));
+    var size = opts.size || (1 + Math.floor(Math.random() * 3)); // 1..3
+    a.type = type;
+    a.size = size;
+    a.radius = [0, 1.1, 1.8, 2.7][size];
+    a.hp = (type === 'gold' ? 2 : 0) + [0, 2, 4, 7][size] + Math.floor((state.wave - 1) * 0.8);
+    a.chunks = [0, 2, 3, 5][size];
+    a.mesh.material = TYPE[type].mat;
+    a.mesh.scale.setScalar(a.radius);
+    if (opts.pos) {
+      a.mesh.position.copy(opts.pos);
+    } else {
+      a.mesh.position.set((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 15, -175 - Math.random() * 25);
+    }
+    if (opts.vel) {
+      a.vx = opts.vel.x; a.vy = opts.vel.y; a.vz = opts.vel.z;
+    } else {
+      var spd = opts.speed || (20 + state.wave * 2.5 + Math.random() * 8);
+      a.vz = spd;
+      a.vx = (ship.position.x - a.mesh.position.x) * 0.02 + (Math.random() - 0.5) * 1.6;
+      a.vy = (ship.position.y - a.mesh.position.y) * 0.02 + (Math.random() - 0.5) * 1.6;
+    }
+    a.rx = (Math.random() - 0.5) * 2;
+    a.ry = (Math.random() - 0.5) * 2;
+    a.mesh.rotation.set(Math.random() * 6, Math.random() * 6, 0);
+    a.active = true;
+    a.mesh.visible = true;
+    return a;
+  }
+  return null;
+}
+function killAsteroid(a, exploded){
+  a.active = false;
+  a.mesh.visible = false;
+  if (exploded) {
+    burst(a.mesh.position.x, a.mesh.position.y, a.mesh.position.z, TYPE[a.type].color, 8 + a.size * 5, 9 + a.size * 3);
+    for (var c = 0; c < a.chunks; c++) spawnOre(a.mesh.position, a.type);
+    state.score += TYPE[a.type].pts * a.size;
+    shake = Math.min(shake + 0.1 + a.size * 0.06, 0.9);
+  }
+}
+
+/* ================= ore pool ================= */
+var ORE_N = 60;
+var oreGeo = new THREE.OctahedronGeometry(0.34, 0);
+var ores = [];
+for (i = 0; i < ORE_N; i++) {
+  var om = new THREE.Mesh(oreGeo, matRock);
+  om.visible = false;
+  scene.add(om);
+  ores.push({ mesh: om, active: false, type: 'rock', vx: 0, vy: 0, vz: 0, spin: 0 });
+}
+function spawnOre(pos, type){
+  for (var i = 0; i < ORE_N; i++) {
+    var o = ores[i];
+    if (o.active) continue;
+    o.type = type;
+    o.mesh.material = TYPE[type].mat;
+    o.mesh.position.copy(pos);
+    o.mesh.position.x += (Math.random() - 0.5) * 1.5;
+    o.mesh.position.y += (Math.random() - 0.5) * 1.5;
+    o.vx = (Math.random() - 0.5) * 7;
+    o.vy = (Math.random() - 0.5) * 7;
+    o.vz = 5 + Math.random() * 5;
+    o.spin = 2 + Math.random() * 4;
+    o.active = true;
+    o.mesh.visible = true;
+    return;
+  }
+}
+
+/* ================= bullet pool ================= */
+var BULLET_N = 26;
+var bulletGeo = new THREE.BoxGeometry(0.16, 0.16, 1.5);
+var bulletMat = new THREE.MeshBasicMaterial({ color: 0x59f2ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+var bullets = [];
+for (i = 0; i < BULLET_N; i++) {
+  var bm = new THREE.Mesh(bulletGeo, bulletMat);
+  bm.visible = false;
+  scene.add(bm);
+  bullets.push({ mesh: bm, active: false });
+}
+function fireBullet(offsetX){
+  for (var i = 0; i < BULLET_N; i++) {
+    if (bullets[i].active) continue;
+    bullets[i].active = true;
+    bullets[i].mesh.visible = true;
+    bullets[i].mesh.position.set(ship.position.x + offsetX, ship.position.y, ship.position.z - 1.4);
+    return;
+  }
+}
+
+/* ================= boss ================= */
+var bossMat = new THREE.MeshStandardMaterial({ color: 0xd9a24a, roughness: 0.5, metalness: 0.7, flatShading: true, emissive: 0x3a1c00, emissiveIntensity: 0.7 });
+var boss = new THREE.Mesh(roughGeo(1, 2), bossMat);
+boss.scale.setScalar(8);
+boss.visible = false;
+scene.add(boss);
+var BOSS_MAX_HP = 300;
+var bossState = { active: false, hp: BOSS_MAX_HP, t: 0, rockTimer: 0, entering: false };
+
+/* ================= game state ================= */
+var WAVE_COUNT = [8, 12, 16, 20, 24];
+var TOTAL_WAVES = 5;
+var UPG = [
+  { key: 'rate',   name: '連射機構', desc: 'レーザーの発射間隔を短縮(Lv3で二連装)', icon: '≡' },
+  { key: 'power',  name: '火力強化', desc: 'レーザー1発の威力が上昇', icon: '✦' },
+  { key: 'speed',  name: '推進装置', desc: '機体の移動速度が上昇', icon: '»' },
+  { key: 'magnet', name: '磁力採集', desc: '鉱石を引き寄せる範囲が拡大', icon: '◉' },
+  { key: 'armor',  name: '装甲板',   desc: '最大装甲+25、さらに全回復', icon: '▣' }
+];
+var COSTS = [10, 18, 30, 46, 66];
+var MAX_LV = 5;
+
+var state = {};
+var shake = 0;
+var mode = 'title';
+var keys = {};
+var best = 0;
+try { best = parseInt(localStorage.getItem('asteroidMinerBest') || '0', 10) || 0; } catch (e) {}
+$('titleBest').textContent = best;
+
+function resetState(){
+  state = {
+    wave: 1, ore: 0, score: 0,
+    hull: 100, maxHull: 100,
+    upg: { rate: 0, power: 0, speed: 0, magnet: 0, armor: 0 },
+    spawnQueue: 0, spawnTimer: 0,
+    fireTimer: 0, invul: 0,
+    phase: 'wave', endTimer: 0, ended: '',
+    titleSpawnTimer: 0
+  };
+  bossState.active = false;
+  boss.visible = false;
+  for (var i = 0; i < ASTEROID_N; i++) killAsteroid(asteroids[i], false);
+  for (i = 0; i < ORE_N; i++) { ores[i].active = false; ores[i].mesh.visible = false; }
+  for (i = 0; i < BULLET_N; i++) { bullets[i].active = false; bullets[i].mesh.visible = false; }
+  ship.visible = true;
+  ship.position.set(0, 0, 0);
+  ship.rotation.set(0, 0, 0);
+}
+resetState();
+
+/* ================= input ================= */
+window.addEventListener('keydown', function(e){
+  keys[e.code] = true;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].indexOf(e.code) >= 0) e.preventDefault();
+  if (mode === 'title' && (e.code === 'Enter' || e.code === 'Space')) startGame();
+  else if ((mode === 'over' || mode === 'clear') && (e.code === 'KeyR' || e.code === 'Enter')) startGame();
+  else if (mode === 'upgrade') {
+    var n = ['Digit1','Digit2','Digit3','Digit4','Digit5'].indexOf(e.code);
+    if (n >= 0) buyUpgrade(n);
+    if (e.code === 'Enter' || e.code === 'Space') nextWave();
+  }
+});
+window.addEventListener('keyup', function(e){ keys[e.code] = false; });
+
+var touch = { id: null, lx: 0, ly: 0, dx: 0, dy: 0 };
+canvas.addEventListener('touchstart', function(e){
+  e.preventDefault();
+  if (touch.id === null) {
+    var t = e.changedTouches[0];
+    touch.id = t.identifier;
+    touch.lx = t.clientX; touch.ly = t.clientY;
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', function(e){
+  e.preventDefault();
+  for (var i = 0; i < e.changedTouches.length; i++) {
+    var t = e.changedTouches[i];
+    if (t.identifier === touch.id) {
+      touch.dx += t.clientX - touch.lx;
+      touch.dy += t.clientY - touch.ly;
+      touch.lx = t.clientX; touch.ly = t.clientY;
+    }
+  }
+}, { passive: false });
+function endTouch(e){
+  for (var i = 0; i < e.changedTouches.length; i++) {
+    if (e.changedTouches[i].identifier === touch.id) touch.id = null;
+  }
+}
+canvas.addEventListener('touchend', endTouch);
+canvas.addEventListener('touchcancel', endTouch);
+
+/* ================= screens / DOM ================= */
+var screens = { title: $('titleScreen'), upgrade: $('upgScreen'), over: $('overScreen'), clear: $('clearScreen') };
+function showScreen(name){
+  for (var k in screens) screens[k].classList.toggle('on', k === name);
+  $('hud').classList.toggle('on', name === '' && (mode === 'play' || mode === 'ending'));
+}
+function toast(text){
+  var el = $('waveToast');
+  el.textContent = text;
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  el.classList.add('pop');
+}
+
+/* upgrade cards */
+var upgCards = [];
+(function buildUpgUI(){
+  var list = $('upgList');
+  for (var i = 0; i < UPG.length; i++) {
+    (function(idx){
+      var u = UPG[idx];
+      var card = document.createElement('div');
+      card.className = 'u-card';
+      card.innerHTML =
+        '<div class="u-icon">' + u.icon + '</div>' +
+        '<div class="u-info">' +
+          '<div class="u-name">' + u.name + '<span class="u-key">[' + (idx + 1) + ']</span></div>' +
+          '<div class="u-desc">' + u.desc + '</div>' +
+          '<div class="u-pips">' +
+            '<span class="u-pip"></span><span class="u-pip"></span><span class="u-pip"></span><span class="u-pip"></span><span class="u-pip"></span>' +
+          '</div>' +
+        '</div>' +
+        '<button class="u-buy"></button>';
+      list.appendChild(card);
+      var btn = card.querySelector('.u-buy');
+      btn.addEventListener('click', function(){ buyUpgrade(idx); });
+      upgCards.push({ card: card, btn: btn, pips: card.querySelectorAll('.u-pip') });
+    })(i);
+  }
+})();
+function refreshUpgUI(){
+  $('upgOre').textContent = state.ore;
+  $('upgWaveInfo').textContent = 'WAVE ' + state.wave + ' 完了 — 船体を強化せよ';
+  for (var i = 0; i < UPG.length; i++) {
+    var lv = state.upg[UPG[i].key];
+    var c = upgCards[i];
+    for (var p = 0; p < MAX_LV; p++) c.pips[p].classList.toggle('lit', p < lv);
+    if (lv >= MAX_LV) {
+      c.btn.textContent = 'MAX';
+      c.btn.disabled = true;
+      c.btn.classList.add('maxed');
+    } else {
+      c.btn.textContent = '◈ ' + COSTS[lv];
+      c.btn.classList.remove('maxed');
+      c.btn.disabled = state.ore < COSTS[lv];
+    }
+  }
+}
+function buyUpgrade(idx){
+  var key = UPG[idx].key;
+  var lv = state.upg[key];
+  if (lv >= MAX_LV || state.ore < COSTS[lv]) return;
+  state.ore -= COSTS[lv];
+  state.upg[key]++;
+  if (key === 'armor') {
+    state.maxHull += 25;
+    state.hull = state.maxHull;
+  }
+  refreshUpgUI();
+}
+
+/* ================= flow ================= */
+function startGame(){
+  resetState();
+  hudCache.wave = ''; hudCache.score = -1; hudCache.ore = -1; hudCache.hull = -1;
+  mode = 'play';
+  showScreen('');
+  $('hud').classList.add('on');
+  $('bossBar').classList.remove('on');
+  startWave(1);
+}
+function startWave(n){
+  state.wave = n;
+  state.phase = 'wave';
+  state.spawnQueue = WAVE_COUNT[n - 1];
+  state.spawnTimer = 0.8;
+  toast('WAVE ' + n);
+  updateHUD();
+}
+function nextWave(){
+  mode = 'play';
+  showScreen('');
+  $('hud').classList.add('on');
+  startWave(state.wave + 1);
+}
+function startBoss(){
+  state.phase = 'boss';
+  bossState.active = true;
+  bossState.entering = true;
+  bossState.hp = BOSS_MAX_HP;
+  bossState.t = 0;
+  bossState.rockTimer = 2.5;
+  boss.position.set(0, 1, -190);
+  boss.visible = true;
+  $('bossBar').classList.add('on');
+  $('bossFill').style.width = '100%';
+  toast('母岩 接近中');
+}
+function endGame(kind){
+  mode = 'ending';
+  state.ended = kind;
+  state.endTimer = 1.4;
+  if (kind === 'clear') {
+    state.score += 1500 + Math.round(state.hull) * 10;
+    burst(boss.position.x, boss.position.y, boss.position.z, 0xffb84d, 60, 26);
+    burst(boss.position.x, boss.position.y, boss.position.z, 0xfff3d0, 40, 16);
+    boss.visible = false;
+    bossState.active = false;
+    ship.visible = true;
+    shake = 1.4;
+  } else {
+    burst(ship.position.x, ship.position.y, ship.position.z, 0xff5470, 50, 20);
+    burst(ship.position.x, ship.position.y, ship.position.z, 0xffb84d, 30, 12);
+    ship.visible = false;
+    shake = 1.2;
+  }
+}
+function finishEnd(){
+  var isClear = state.ended === 'clear';
+  var isBest = state.score > best;
+  if (isBest) {
+    best = state.score;
+    try { localStorage.setItem('asteroidMinerBest', String(best)); } catch (e) {}
+  }
+  $('titleBest').textContent = best;
+  if (isClear) {
+    $('clearScore').textContent = state.score;
+    $('clearBest').textContent = best;
+    $('clearNewBest').style.display = isBest ? 'block' : 'none';
+    mode = 'clear';
+    showScreen('clear');
+  } else {
+    $('overScore').textContent = state.score;
+    $('overBest').textContent = best;
+    $('overNewBest').style.display = isBest ? 'block' : 'none';
+    $('overSub').textContent = 'WAVE ' + state.wave + ' にて船体大破……';
+    mode = 'over';
+    showScreen('over');
+  }
+  $('hud').classList.remove('on');
+  $('bossBar').classList.remove('on');
+}
+$('startBtn').addEventListener('click', startGame);
+$('overRetryBtn').addEventListener('click', startGame);
+$('clearRetryBtn').addEventListener('click', startGame);
+$('nextWaveBtn').addEventListener('click', nextWave);
+
+/* ================= HUD ================= */
+var hudCache = { wave: '', score: -1, ore: -1, hull: -1 };
+function updateHUD(){
+  var w = state.phase === 'boss' ? 'BOSS' : state.wave + '/' + TOTAL_WAVES;
+  if (w !== hudCache.wave) { hudCache.wave = w; $('waveText').textContent = w; }
+  if (state.score !== hudCache.score) { hudCache.score = state.score; $('scoreText').textContent = state.score; }
+  if (state.ore !== hudCache.ore) { hudCache.ore = state.ore; $('oreText').textContent = state.ore; }
+  var h = Math.max(0, Math.round(state.hull));
+  if (h !== hudCache.hull) {
+    hudCache.hull = h;
+    $('hullText').textContent = h + ' / ' + state.maxHull;
+    var pct = h / state.maxHull * 100;
+    var fill = $('hullFill');
+    fill.style.width = pct + '%';
+    fill.className = pct < 25 ? 'crit' : (pct < 55 ? 'warn' : '');
+  }
+}
+
+function damageShip(amount){
+  if (state.invul > 0 || mode !== 'play') return;
+  state.hull -= amount;
+  state.invul = 0.9;
+  shake = Math.min(shake + 0.5, 1.2);
+  var hf = $('hitflash');
+  hf.classList.add('on');
+  setTimeout(function(){ hf.classList.remove('on'); }, 60);
+  burst(ship.position.x, ship.position.y, ship.position.z, 0xff5470, 14, 10);
+  if (state.hull <= 0) { state.hull = 0; endGame('over'); }
+}
+
+/* ================= update ================= */
+function shipControl(dt){
+  var spd = 16 + state.upg.speed * 2.6;
+  var mx = 0, my = 0;
+  if (keys.ArrowLeft || keys.KeyA) mx -= 1;
+  if (keys.ArrowRight || keys.KeyD) mx += 1;
+  if (keys.ArrowUp || keys.KeyW) my += 1;
+  if (keys.ArrowDown || keys.KeyS) my -= 1;
+  ship.position.x += mx * spd * dt;
+  ship.position.y += my * spd * dt;
+  if (touch.dx !== 0 || touch.dy !== 0) {
+    var s = 34 / window.innerHeight * (1 + state.upg.speed * 0.12);
+    ship.position.x += touch.dx * s;
+    ship.position.y -= touch.dy * s;
+    touch.dx = 0; touch.dy = 0;
+  }
+  ship.position.x = Math.max(-BOUND_X, Math.min(BOUND_X, ship.position.x));
+  ship.position.y = Math.max(BOUND_Y_MIN, Math.min(BOUND_Y_MAX, ship.position.y));
+  // banking
+  var targetRoll = mx !== 0 ? -mx * 0.5 : -((touch.id !== null) ? 0 : 0);
+  ship.rotation.z += (targetRoll - ship.rotation.z) * Math.min(1, dt * 8);
+  ship.rotation.x += ((my !== 0 ? -my * 0.2 : 0) - ship.rotation.x) * Math.min(1, dt * 8);
+  // engine pulse
+  var pulse = 0.85 + Math.sin(clock * 22) * 0.15;
+  engineGlow.scale.setScalar(pulse);
+  engineLight.intensity = 1.3 + pulse * 0.5;
+  // blink while invulnerable
+  ship.visible = state.invul > 0 ? (Math.floor(clock * 14) % 2 === 0) : true;
+}
+
+function autoFire(dt){
+  state.fireTimer -= dt;
+  if (state.fireTimer > 0) return;
+  var cd = 0.3 * Math.pow(0.85, state.upg.rate);
+  state.fireTimer = cd;
+  if (state.upg.rate >= 3) {
+    fireBullet(-0.55);
+    fireBullet(0.55);
+  } else {
+    fireBullet(0);
+  }
+}
+
+function updateBullets(dt){
+  var dmg = 1 + state.upg.power;
+  for (var i = 0; i < BULLET_N; i++) {
+    var b = bullets[i];
+    if (!b.active) continue;
+    b.mesh.position.z -= 95 * dt;
+    if (b.mesh.position.z < -210) { b.active = false; b.mesh.visible = false; continue; }
+    var bp = b.mesh.position;
+    // vs asteroids
+    var hit = false;
+    for (var j = 0; j < ASTEROID_N; j++) {
+      var a = asteroids[j];
+      if (!a.active) continue;
+      var dx = a.mesh.position.x - bp.x, dy = a.mesh.position.y - bp.y, dz = a.mesh.position.z - bp.z;
+      if (dx*dx + dy*dy + dz*dz < (a.radius + 0.8) * (a.radius + 0.8)) {
+        a.hp -= dmg;
+        burst(bp.x, bp.y, bp.z, 0x59f2ff, 4, 6);
+        a.mesh.scale.setScalar(a.radius * 1.12);
+        if (a.hp <= 0) killAsteroid(a, true);
+        hit = true;
+        break;
+      }
+    }
+    // vs boss
+    if (!hit && bossState.active && !bossState.entering) {
+      var bx = boss.position.x - bp.x, by = boss.position.y - bp.y, bz = boss.position.z - bp.z;
+      if (bx*bx + by*by + bz*bz < 8.8 * 8.8) {
+        bossState.hp -= dmg;
+        burst(bp.x, bp.y, bp.z, 0xffb84d, 5, 7);
+        $('bossFill').style.width = Math.max(0, bossState.hp / BOSS_MAX_HP * 100) + '%';
+        if (bossState.hp <= 0) {
+          state.score += 2000;
+          endGame('clear');
+        }
+        hit = true;
+      }
+    }
+    if (hit) { b.active = false; b.mesh.visible = false; }
+  }
+}
+
+function updateAsteroids(dt, hostile){
+  for (var i = 0; i < ASTEROID_N; i++) {
+    var a = asteroids[i];
+    if (!a.active) continue;
+    a.mesh.position.x += a.vx * dt;
+    a.mesh.position.y += a.vy * dt;
+    a.mesh.position.z += a.vz * dt;
+    a.mesh.rotation.x += a.rx * dt;
+    a.mesh.rotation.y += a.ry * dt;
+    // scale ease back after hit-flash punch
+    var cur = a.mesh.scale.x;
+    if (cur > a.radius) a.mesh.scale.setScalar(Math.max(a.radius, cur - a.radius * 3 * dt));
+    if (a.mesh.position.z > 14) { killAsteroid(a, false); continue; }
+    if (hostile) {
+      var dx = a.mesh.position.x - ship.position.x;
+      var dy = a.mesh.position.y - ship.position.y;
+      var dz = a.mesh.position.z - ship.position.z;
+      var rr = a.radius + 1.1;
+      if (dx*dx + dy*dy + dz*dz < rr * rr) {
+        damageShip(8 + a.size * 6);
+        killAsteroid(a, true);
+      }
+    }
+  }
+}
+
+function updateOres(dt){
+  var magnetR = 5.5 + state.upg.magnet * 2.2;
+  for (var i = 0; i < ORE_N; i++) {
+    var o = ores[i];
+    if (!o.active) continue;
+    var dx = ship.position.x - o.mesh.position.x;
+    var dy = ship.position.y - o.mesh.position.y;
+    var dz = ship.position.z - o.mesh.position.z;
+    var d2 = dx*dx + dy*dy + dz*dz;
+    if (d2 < magnetR * magnetR) {
+      var d = Math.sqrt(d2) || 0.01;
+      var pull = 30 * (1 - d / (magnetR * 1.4));
+      o.vx += dx / d * pull * dt * 4;
+      o.vy += dy / d * pull * dt * 4;
+      o.vz += dz / d * pull * dt * 4;
+    } else {
+      o.vx *= (1 - dt * 1.5);
+      o.vy *= (1 - dt * 1.5);
+    }
+    o.mesh.position.x += o.vx * dt;
+    o.mesh.position.y += o.vy * dt;
+    o.mesh.position.z += o.vz * dt;
+    o.mesh.rotation.y += o.spin * dt;
+    o.mesh.rotation.x += o.spin * 0.6 * dt;
+    if (d2 < 1.6) {
+      o.active = false;
+      o.mesh.visible = false;
+      var val = TYPE[o.type].value;
+      state.ore += val;
+      state.score += val * 15;
+      burst(ship.position.x, ship.position.y, ship.position.z, TYPE[o.type].color, 5, 5);
+      continue;
+    }
+    if (o.mesh.position.z > 15) { o.active = false; o.mesh.visible = false; }
+  }
+}
+
+function activeAsteroidCount(){
+  var n = 0;
+  for (var i = 0; i < ASTEROID_N; i++) if (asteroids[i].active) n++;
+  return n;
+}
+
+function updatePlay(dt){
+  if (mode === 'play') {
+    shipControl(dt);
+    autoFire(dt);
+    if (state.invul > 0) state.invul -= dt;
+  }
+  updateBullets(dt);
+  updateAsteroids(dt, mode === 'play');
+  updateOres(dt);
+
+  if (state.phase === 'wave') {
+    if (state.spawnQueue > 0) {
+      state.spawnTimer -= dt;
+      if (state.spawnTimer <= 0) {
+        state.spawnTimer = Math.max(0.35, 1.5 - state.wave * 0.18) * (0.7 + Math.random() * 0.6);
+        if (spawnAsteroid()) state.spawnQueue--;
+      }
+    } else if (mode === 'play' && activeAsteroidCount() === 0) {
+      // wave cleared
+      state.score += state.wave * 200;
+      if (state.wave >= TOTAL_WAVES) {
+        startBoss();
+      } else {
+        mode = 'upgrade';
+        refreshUpgUI();
+        showScreen('upgrade');
+        $('hud').classList.remove('on');
+      }
+    }
+  } else if (state.phase === 'boss' && bossState.active) {
+    bossState.t += dt;
+    if (bossState.entering) {
+      boss.position.z += (-48 - boss.position.z) * Math.min(1, dt * 0.8);
+      if (boss.position.z > -50) bossState.entering = false;
+    } else {
+      boss.position.x = Math.sin(bossState.t * 0.5) * 9;
+      boss.position.y = 1 + Math.sin(bossState.t * 0.8) * 3;
+      bossState.rockTimer -= dt;
+      var enraged = bossState.hp < BOSS_MAX_HP * 0.4;
+      bossMat.emissive.setHex(enraged ? 0x661500 : 0x3a1c00);
+      if (bossState.rockTimer <= 0 && mode === 'play') {
+        bossState.rockTimer = enraged ? 1.3 : 2.2;
+        var dir = new THREE.Vector3().subVectors(ship.position, boss.position).normalize().multiplyScalar(enraged ? 34 : 26);
+        spawnAsteroid({ type: Math.random() < 0.25 ? 'gold' : 'rock', size: 1, pos: boss.position.clone(), vel: dir });
+      }
+    }
+    boss.rotation.y += dt * 0.4;
+    boss.rotation.x += dt * 0.15;
+  }
+
+  if (mode === 'ending') {
+    state.endTimer -= dt;
+    if (state.endTimer <= 0) finishEnd();
+  }
+  updateHUD();
+}
+
+/* title-mode ambience */
+function updateTitle(dt){
+  state.titleSpawnTimer -= dt;
+  if (state.titleSpawnTimer <= 0) {
+    state.titleSpawnTimer = 1.6;
+    spawnAsteroid({ speed: 9 });
+  }
+  updateAsteroids(dt, false);
+  ship.position.x += (Math.sin(clock * 0.6) * 3 - ship.position.x) * dt;
+  ship.position.y += (Math.sin(clock * 0.9) * 1.2 - ship.position.y) * dt;
+  ship.rotation.z = Math.sin(clock * 0.7) * 0.12;
+  var pulse = 0.85 + Math.sin(clock * 22) * 0.15;
+  engineGlow.scale.setScalar(pulse);
+}
+
+/* ================= main loop ================= */
+var clock = 0;
+var last = performance.now();
+function tick(now){
+  requestAnimationFrame(tick);
+  var dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  clock += dt;
+
+  var starMul = (mode === 'play' || mode === 'ending') ? 1 : 0.35;
+  updateStars(dt, starMul);
+  updateParticles(dt);
+
+  if (mode === 'title') updateTitle(dt);
+  else if (mode === 'play' || mode === 'ending') updatePlay(dt);
+  else if (mode === 'upgrade') {
+    var oreBefore = state.ore;
+    updateOres(dt);
+    if (state.ore !== oreBefore) refreshUpgUI();
+    ship.rotation.z *= (1 - dt * 4);
+    var pulse = 0.85 + Math.sin(clock * 22) * 0.15;
+    engineGlow.scale.setScalar(pulse);
+  }
+  else if (mode === 'over' || mode === 'clear') {
+    updateAsteroids(dt, false);
+  }
+
+  // camera follow + shake
+  shake = Math.max(0, shake - dt * 2.2);
+  var sx = (Math.random() - 0.5) * shake;
+  var sy = (Math.random() - 0.5) * shake;
+  camera.position.x = CAM_BASE.x + ship.position.x * 0.22 + sx;
+  camera.position.y = CAM_BASE.y + ship.position.y * 0.18 + sy;
+  camera.position.z = CAM_BASE.z;
+  camera.lookAt(ship.position.x * 0.3, ship.position.y * 0.25, -40);
+
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
